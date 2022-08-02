@@ -2,7 +2,6 @@ import logging
 from dataclasses import dataclass
 
 import numpy as np
-import sage.all as sg
 from sage.calculus.ode import ode_solver
 
 LOG_LEVEL = logging.INFO
@@ -54,6 +53,21 @@ def splittings(collection, ordered=True):
         yield [collection[0]] + part1, part2
         if ordered:
             yield part1, [collection[0]] + part2
+
+
+def rhs_1d(s, c, m, gamma, limits):
+    if abs((s - c) / m) < 1:
+        res = 1 / max(s, 1e-6) / m / (1 - ((s - c) / m) ** 2) ** .5
+        num = 0
+        beta1 = np.arccos((s - c) / m) - gamma
+        beta2 = -np.arccos((s - c) / m) - gamma
+        if limits[0] < beta1 < limits[1]:
+            num += 1
+        if limits[0] < beta2 < limits[1]:
+            num += 1
+
+        return res * num
+    return 0
 
 
 def density(beta, phi1, phi2, alpha1, alpha2, arg):
@@ -167,47 +181,16 @@ class SplittingInfo:
             # fast computation for the 1-dimensional case
             logger.debug(f'SI at {hex(id(self))}: fast mode')
 
-            def area(_beta):
-                _beta_ = self.phi1 - _beta
-                _beta2 = self.alpha1[0] - _beta
-                _beta2_ = self.phi2 - _beta2
-                a1 = 1 / (1 / (np.tan(_beta / 2 + 1e-6)) + 1 / np.tan(_beta2 / 2 + 1e-6))
-                a2 = 1 / (1 / np.tan(_beta_ / 2 + 1e-6) + 1 / np.tan(_beta2_ / 2 + 1e-6))
-                return a1 + a2
+            limits = max(0, self.phi1 - self.alpha2[0]) + 1e-5, min(self.alpha1[0], self.phi1) - 1e-5
 
-            if self.limits[1] > self.limits[0]:
-                area_max, beta_max = sg.find_local_maximum(area(sg.var('x')), self.limits[0], self.limits[1])
-                area0, area1 = area(self.limits[0]), area(self.limits[1])
-            else:
-                area0, area1, area_max, beta_max = 0, 0, 0, 0
+            m = np.exp(-1j * self.alpha1[0] / 2) / np.sin(self.alpha1[0] / 2) + \
+                np.exp(1j * (self.alpha2[0] / 2 - self.phi1)) / np.sin(self.alpha2[0] / 2)
+            gamma = np.angle(m)
+            m = np.abs(m) / 2
+            c = - 1 / np.tan(self.alpha1[0] / 2) / 2 - 1 / np.tan(self.alpha2[0] / 2) / 2
 
-            def area_diff(_beta):  # sg.derivative(area(sg.var('b')), sg.var('b'))
-                _beta_ = self.phi1 - _beta
-                _beta2 = self.alpha1[0] - _beta
-                _beta2_ = self.phi2 - _beta2
+            self.rhs_function = lambda s: rhs_1d(s, c, m, gamma, limits)
 
-                # noinspection DuplicatedCode
-                return \
-                    1 / 2 * (
-                            (np.tan(_beta / 2 + 1e-6) ** -2 + 1) -
-                            (np.tan(_beta2 / 2 + 1e-6) ** -2 + 1)
-                    ) / (1 / np.tan(_beta / 2 + 1e-6) + 1 / np.tan(_beta2 / 2 + 1e-6)) ** 2 - \
-                    1 / 2 * (
-                            (np.tan(_beta_ / 2 + 1e-6) ** -2 + 1) -
-                            (np.tan(_beta2_ / 2 + 1e-6) ** -2 + 1)
-                    ) / (1 / np.tan(_beta_ / 2 + 1e-6) + 1 / np.tan(_beta2_ / 2 + 1e-6)) ** 2
-
-            def rhs(s):
-                val = 0
-                if area0 < s < area_max:
-                    b = sg.find_root(area(sg.var('x')) - s, self.limits[0], beta_max)
-                    val += 1 / s / area_diff(b)
-                if area1 < s < area_max:
-                    b = sg.find_root(area(sg.var('x')) - s, beta_max, self.limits[1])
-                    val -= 1 / s / area_diff(b)
-                return val
-
-            self.rhs_function = rhs
         else:
             # straightforward computation
             betas = beta_steps(self.limits)
