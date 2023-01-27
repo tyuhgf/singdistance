@@ -25,7 +25,7 @@ def calc_rhs_1dim(r, p1, p2, ar, alpha1):
     thread = cuda.threadIdx.x
     block = cuda.blockIdx.x
     n_threads = cuda.blockDim.x
-    n_blocks = cuda.gridDim.x
+    # n_blocks = cuda.gridDim.x
 
     for t in range(1, T):
         if block * n_threads + thread < N:
@@ -68,12 +68,13 @@ def solve(r, p1, p2, a, y, dp, da, n):
     thread = cuda.threadIdx.x
     block = cuda.blockIdx.x
     n_threads = cuda.blockDim.x
-    n_blocks = cuda.gridDim.x
+    # n_blocks = cuda.gridDim.x
 
     i = block * n_threads + thread
 
-    q = 1 / cuda.cudamath.math.tan(p1[i, 0] / 2)
-    q += 1 / cuda.cudamath.math.tan(p2[i, 0] / 2)
+    if i < N:
+        q = 1 / cuda.cudamath.math.tan(p1[i, 0] / 2)
+        q += 1 / cuda.cudamath.math.tan(p2[i, 0] / 2)
 
     for t in range(1, T):
         if i < N:
@@ -170,6 +171,11 @@ def run_rhs_1dim(res_, Phi1_, Phi2_, Area_, alpha1_, kernel_params=(1000, 1)):
 
 
 def run_solve(res_, Phi1_, Phi2_, Area_, y_, dphi_, darea_, n_, kernel_params=(1000, 1)):
+    # todo: Phi1, Phi2 -> phi1, phi2 (1-dimensional)
+    if res_.shape[0] > kernel_params[0] * kernel_params[1]:
+        raise RuntimeWarning('Not enough kernels')
+    if res_.shape[0] * 2 + 1 < kernel_params[0] * kernel_params[1]:
+        logger.warning('Too many kernels')
     d_res = cuda.to_device(res_)
     y_res = cuda.to_device(y_)
     d_Phi1_ = cuda.to_device(Phi1_)
